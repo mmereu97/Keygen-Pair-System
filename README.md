@@ -11,6 +11,8 @@ The system consists of three main components:
 
 ## Protection Mechanisms
 
+> **Note**: One of the most important security measures is replacing the placeholder `"YourSecretKeyHere"` with your own unique secret key before distribution. This is explained in detail in the [Secret Key Configuration](#secret-key-configuration) section.
+
 The system implements multiple layers of security to protect your software:
 
 1. **Hardware Fingerprinting**
@@ -137,9 +139,20 @@ pip install PyQt5 cryptography ntplib wmi python-docx
        # Proceed with function
    ```
 
-### Customization
+### Secret Key Configuration
 
-**Important**: Before deploying, replace `"YourSecretKeyHere"` with your own secret key in both `keygen.py` and `security_system.py` files.
+**CRITICAL SECURITY STEP**: 
+Before deploying the system, you **MUST** replace the placeholder text `"YourSecretKeyHere"` with your own secret key in **both** files:
+- In `keygen.py` (line 70): `secret = "YourSecretKeyHere"`
+- In `security_system.py` (line 385): `key_base = f"{hwid}:{current_date}:{days}:YourSecretKeyHere"`
+
+This secret key is fundamental to the security of the entire system:
+- It's incorporated into the license key generation algorithm
+- It prevents unauthorized key generation
+- It ensures that licenses created with one secret key cannot be used with applications using a different secret key
+- Without changing this value, your application will be vulnerable to unauthorized license generation
+
+For maximum security, use a strong, random string of at least a 32-character mix of uppercase, lowercase, numbers, and special characters.
 
 ## Security Considerations
 

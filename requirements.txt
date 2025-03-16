@@ -1,0 +1,6 @@
+# Required external packages for the license key protection system
+PyQt5>=5.15.0
+cryptography>=36.0.0
+ntplib>=0.4.0
+wmi>=1.5.1
+python-docx>=0.8.11
