@@ -94,14 +94,57 @@ class SecurityModule:
             'time.apple.com'
         ]
         self.time_threshold = 300  # 5 minute tolerance
-        self.rsa_key = self._generate_rsa_key()
+        self.key_file = "rsa_key.dat"  # Fișier pentru a stoca cheia RSA
+        self.rsa_key = self._load_or_generate_rsa_key()
         self.device_key = self._generate_device_specific_key()
-        
-    def _generate_rsa_key(self) -> rsa.RSAPrivateKey:
-        return rsa.generate_private_key(
+    
+    def _load_or_generate_rsa_key(self) -> rsa.RSAPrivateKey:
+        """Încarcă cheia RSA dacă există, altfel generează una nouă și o salvează"""
+        try:
+            if os.path.exists(self.key_file):
+                # Deschidem fișierul cu cheia RSA salvată
+                with open(self.key_file, "rb") as f:
+                    key_bytes = f.read()
+                
+                # Deserializăm cheia RSA
+                private_key = serialization.load_der_private_key(
+                    key_bytes,
+                    password=None
+                )
+                return private_key
+            
+            # Dacă fișierul nu există, generăm o cheie nouă
+            return self._generate_and_save_rsa_key()
+        except Exception:
+            # În caz de eroare, generăm o cheie nouă
+            if os.path.exists(self.key_file):
+                # Încercăm să ștergem fișierul vechi în caz de corupere
+                try:
+                    os.remove(self.key_file)
+                except:
+                    pass
+            return self._generate_and_save_rsa_key()
+    
+    def _generate_and_save_rsa_key(self) -> rsa.RSAPrivateKey:
+        """Generează o cheie RSA nouă și o salvează în fișier"""
+        # Generăm cheia
+        private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048
         )
+        
+        # Serializăm cheia în format DER (mai compact decât PEM)
+        key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        # Salvăm cheia în fișier
+        with open(self.key_file, "wb") as f:
+            f.write(key_bytes)
+        
+        return private_key
     
     def _generate_device_specific_key(self) -> bytes:
         device_info = [
@@ -280,6 +323,12 @@ class SecureLicenseManager:
                 f.write(len(encrypted_key).to_bytes(4, 'big'))
                 f.write(encrypted_key)
                 f.write(encrypted_data)
+            
+            # Verificăm că fișierul a fost creat cu succes
+            if os.path.exists(self.license_file):
+                file_size = os.path.getsize(self.license_file)
+                if file_size <= 0:
+                    return False, "License file created but is empty"
                 
             return True, "License activated successfully"
 
@@ -288,21 +337,27 @@ class SecureLicenseManager:
 
     def verify_license(self) -> Tuple[bool, str]:
         try:
+            # Verificăm dacă fișierul de licență există
+            if not os.path.exists(self.license_file):
+                return False, "No license found"
+
+            # Verificăm timpul sistemului
             time_valid, time_message = self.security.verify_time()
             if not time_valid:
                 return False, f"Time verification failed: {time_message}"
 
-            if not os.path.exists(self.license_file):
-                return False, "No license found"
-
+            # Citim și decriptăm datele din fișierul de licență
             with open(self.license_file, 'rb') as f:
                 key_length = int.from_bytes(f.read(4), 'big')
                 encrypted_key = f.read(key_length)
                 encrypted_data = f.read()
 
             license_data = self.security.decrypt_license_data(encrypted_data, encrypted_key)
+            
+            # Deobfuscăm cheia
             license_data['key'] = self.security.deobfuscate_string(license_data['key'])
 
+            # Verificăm HWID-ul
             current_fingerprint = self.hardware_id.generate_hardware_fingerprint()
             stored_fingerprint = license_data['fingerprint']
             
@@ -314,6 +369,7 @@ class SecureLicenseManager:
             if matches < 2:
                 return False, "Hardware verification failed"
 
+            # Verificăm data de expirare
             activation_date = datetime.strptime(license_data['activation_date'], 
                                               '%Y-%m-%d %H:%M:%S')
             days_valid = license_data['days_valid']
@@ -323,8 +379,10 @@ class SecureLicenseManager:
                 
             days_left = days_valid - (datetime.now() - activation_date).days
             
+            # Actualizăm data ultimei verificări
             license_data['last_verified'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
+            # Salvăm datele înapoi în fișier
             encrypted_data, encrypted_key = self.security.encrypt_license_data(license_data)
             with open(self.license_file, 'wb') as f:
                 f.write(len(encrypted_key).to_bytes(4, 'big'))

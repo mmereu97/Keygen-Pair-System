@@ -2,3 +2,7 @@
 .idea/
 build/
 dist/
+license.dat
+rsa_key.dat
+WordReplacer.exe
+*.spec
